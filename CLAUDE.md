@@ -27,8 +27,11 @@ youtube_cli.py               # Main CLI (single file)
 | `upload` | Upload video + metadata | `--file`, `--title`, `--description`, `--tags`, `--category`, `--privacy`, `--thumbnail`, `--playlist`, `--language`, `--publish-at`, `--json` |
 | `video-update` | Update video metadata | `--video-id ID`, `--title`, `--description`, `--tags`, `--privacy`, `--thumbnail`, `--json` |
 | `video-delete` | Delete video | `--video-id ID`, `--confirm` (required) |
-| `stats` | Channel/video statistics | `--video-id` (optional), `--json` |
+| `stats` | Channel/video statistics (Data API) | `--video-id` (optional), `--json` |
+| `analytics` | Channel analytics — views, watch time, retention (averageViewPercentage), traffic sources, subs (YouTube Analytics API v2) | `--days`, `--start-date`/`--end-date`, `--dimensions day\|video\|insightTrafficSourceType`, `--sort`, `--video-id`, `--json` |
 | `playlists` | List playlists | `--json` |
+
+> `analytics` needs the **YouTube Analytics API enabled** in the GCP project + scope `yt-analytics.readonly` (both done 2026-06-15). If it ever returns a scope error, run `auth` once to re-grant.
 
 ## Safety
 

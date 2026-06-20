@@ -33,7 +33,10 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 CLIENT_ID = os.getenv("YOUTUBE_CLIENT_ID", "")
 CLIENT_SECRET = os.getenv("YOUTUBE_CLIENT_SECRET", "")
 TOKEN_FILE = os.path.expanduser("~/.youtube-cli-token.json")
-SCOPES = ["https://www.googleapis.com/auth/youtube"]
+SCOPES = [
+    "https://www.googleapis.com/auth/youtube",
+    "https://www.googleapis.com/auth/yt-analytics.readonly",
+]
 
 MAX_RETRIES = 10
 RETRIABLE_STATUS_CODES = (500, 502, 503, 504)
@@ -109,6 +112,14 @@ def _get_youtube_service():
         print("ERROR: Not authenticated. Run 'auth' command first.", file=sys.stderr)
         sys.exit(1)
     return build("youtube", "v3", credentials=creds)
+
+
+def _get_analytics_service():
+    """YouTube Analytics API v2 (watch time, retention, traffic sources). Needs yt-analytics.readonly scope."""
+    creds = _get_credentials()
+    if creds is None:
+        return None
+    return build("youtubeAnalytics", "v2", credentials=creds)
 
 
 # ---------------------------------------------------------------------------
@@ -635,6 +646,46 @@ def cmd_video_delete(args: argparse.Namespace) -> None:
 # CLI setup
 # ---------------------------------------------------------------------------
 
+def cmd_analytics(args: argparse.Namespace) -> None:
+    """Channel analytics over a date range — views, watch time, retention, traffic, subs (YouTube Analytics API).
+
+    Needs the yt-analytics.readonly scope: if the saved token predates it, run `auth` once to re-grant.
+    Examples:
+      analytics --days 28                              # channel totals, last 28 days
+      analytics --days 28 --dimensions day --sort day  # daily trend
+      analytics --dimensions video --sort -views --max-results 10   # top videos
+      analytics --dimensions insightTrafficSourceType  # where views come from
+    """
+    import datetime
+
+    analytics = _get_analytics_service()
+    if analytics is None:
+        print("ERROR: Not authenticated. Run `auth` to (re-)grant the analytics scope.", file=sys.stderr)
+        sys.exit(1)
+    end = args.end_date or datetime.date.today().isoformat()
+    start = args.start_date or (datetime.date.today() - datetime.timedelta(days=args.days)).isoformat()
+    query = {
+        "ids": "channel==MINE",
+        "startDate": start,
+        "endDate": end,
+        "metrics": args.metrics,
+    }
+    if args.dimensions:
+        query["dimensions"] = args.dimensions
+    if args.sort:
+        query["sort"] = args.sort
+    if args.video_id:
+        query["filters"] = f"video=={args.video_id}"
+    if args.max_results:
+        query["maxResults"] = args.max_results
+    try:
+        resp = analytics.reports().query(**query).execute()
+    except HttpError as e:
+        print(f"ERROR: YouTube Analytics: {e}", file=sys.stderr)
+        sys.exit(1)
+    print(json.dumps(resp, ensure_ascii=False, indent=2))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="YouTube CLI — manage videos, playlists, uploads, and stats.",
@@ -692,6 +743,23 @@ def main() -> None:
     p_stats.add_argument("--video-id", type=str, help="Video ID (omit for channel stats)")
     p_stats.add_argument("--json", **json_kwargs)
 
+    # --- analytics ---
+    p_an = subparsers.add_parser("analytics",
+                                 help="Channel analytics (watch time, retention, traffic) — may need re-auth")
+    p_an.add_argument("--days", type=int, default=28, help="Lookback window in days (default 28)")
+    p_an.add_argument("--start-date", help="YYYY-MM-DD (overrides --days)")
+    p_an.add_argument("--end-date", help="YYYY-MM-DD (default today)")
+    p_an.add_argument(
+        "--metrics",
+        default="views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,"
+                "subscribersGained,subscribersLost,likes,comments,shares",
+        help="Comma-separated YouTube Analytics metrics")
+    p_an.add_argument("--dimensions", help="e.g. day | video | insightTrafficSourceType")
+    p_an.add_argument("--sort", help="e.g. -views | day")
+    p_an.add_argument("--video-id", help="Filter to a single video")
+    p_an.add_argument("--max-results", type=int, help="Row cap (with dimensions)")
+    p_an.add_argument("--json", **json_kwargs)
+
     # --- playlists ---
     p_pl = subparsers.add_parser("playlists", help="List playlists")
     p_pl.add_argument("--json", **json_kwargs)
@@ -713,6 +781,7 @@ def main() -> None:
         "video-update": cmd_video_update,
         "video-delete": cmd_video_delete,
         "stats": cmd_stats,
+        "analytics": cmd_analytics,
         "playlists": cmd_playlists,
     }
 
