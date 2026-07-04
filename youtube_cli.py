@@ -11,6 +11,7 @@ import argparse
 import http.client
 import json
 import os
+import mimetypes
 import random
 import sys
 import time
@@ -489,7 +490,7 @@ def cmd_upload(args: argparse.Namespace) -> None:
             try:
                 youtube.thumbnails().set(
                     videoId=video_id,
-                    media_body=MediaFileUpload(thumb_path, mimetype="image/*"),
+                    media_body=MediaFileUpload(thumb_path, mimetype=mimetypes.guess_type(thumb_path)[0] or "image/jpeg"),
                 ).execute()
                 print("  Thumbnail set.", file=sys.stderr)
             except HttpError as e:
@@ -591,7 +592,7 @@ def cmd_video_update(args: argparse.Namespace) -> None:
             try:
                 youtube.thumbnails().set(
                     videoId=args.video_id,
-                    media_body=MediaFileUpload(thumb_path, mimetype="image/*"),
+                    media_body=MediaFileUpload(thumb_path, mimetype=mimetypes.guess_type(thumb_path)[0] or "image/jpeg"),
                 ).execute()
                 print("Thumbnail set.", file=sys.stderr)
             except HttpError as e:
