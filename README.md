@@ -1,6 +1,10 @@
 # YouTube CLI
 
-A Python command-line tool for managing [YouTube](https://www.youtube.com/) videos via the YouTube Data API v3. Upload videos, manage metadata, set thumbnails, organize playlists, and view stats — all from the terminal. Built to be orchestrated by [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or any AI coding agent.
+**v2.0.0** · [Changelog](CHANGELOG.md) · [API notes](docs/api-notes.md)
+
+A Python command-line tool for managing [YouTube](https://www.youtube.com/) videos via the YouTube Data API v3, plus channel analytics via the YouTube Analytics API v2. Upload videos, manage metadata, set thumbnails, organize playlists, read stats, watch time and retention — all from the terminal. Built to be orchestrated by [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or any AI coding agent.
+
+> **📊 Views changed on 2026-08-24.** YouTube now counts a view the moment playback starts, with no minimum watch time, for **every** format (Shorts have worked this way since 2025-03-31). The old definition is gone from the public Data API and survives as **engaged views** in the Analytics API. This CLI shows both — see [View counting](#view-counting-2026-08-24).
 
 ## Why This Exists
 
@@ -21,6 +25,7 @@ All in a single conversation. You create content, AI does the admin.
 - **Python 3.9+**
 - **YouTube channel** linked to a Google account
 - **Google Cloud project** with YouTube Data API v3 enabled and OAuth 2.0 credentials
+- For the `analytics` command: **YouTube Analytics API** enabled in the same project
 
 ## Google Cloud Setup
 
@@ -33,11 +38,11 @@ Before using the CLI, you need to set up a Google Cloud project with OAuth crede
 3. Name it (e.g. `youtube-cli`) → **Create**
 4. Select the new project from the dropdown
 
-### 2. Enable YouTube Data API v3
+### 2. Enable the APIs
 
 1. Go to **APIs & Services → Library** ([direct link](https://console.cloud.google.com/apis/library))
-2. Search for **YouTube Data API v3**
-3. Click on it → **Enable**
+2. Search for **YouTube Data API v3** → click it → **Enable**
+3. Search for **YouTube Analytics API** → click it → **Enable** (needed for the `analytics` command and `stats --engaged`; skip if you only publish videos)
 
 ### 3. Configure OAuth Consent Screen
 
@@ -48,7 +53,7 @@ Before using the CLI, you need to set up a Google Cloud project with OAuth crede
    - **User support email:** your email
    - **Developer contact:** your email
 4. Click **Save and Continue**
-5. On the **Scopes** page → **Add or Remove Scopes** → find and add `https://www.googleapis.com/auth/youtube` → **Save and Continue**
+5. On the **Scopes** page → **Add or Remove Scopes** → add `https://www.googleapis.com/auth/youtube` and `https://www.googleapis.com/auth/yt-analytics.readonly` → **Save and Continue**
 6. On the **Test users** page → **Add Users** → add your Gmail address → **Save and Continue**
 
 > **Token expiry note:** In "Testing" mode, OAuth refresh tokens expire after **7 days**. To get long-lived tokens, click **Publish App** on the OAuth consent screen page. For personal-use apps with only your own account, Google typically doesn't require additional verification.
@@ -181,7 +186,60 @@ python youtube_cli.py stats
 # Specific video stats
 python youtube_cli.py stats --video-id VIDEO_ID
 python youtube_cli.py stats --video-id VIDEO_ID --json
+
+# Add lifetime engaged views (the pre-2026-08-24 view definition)
+python youtube_cli.py stats --engaged
+python youtube_cli.py stats --video-id VIDEO_ID --engaged
 ```
+
+### Analytics
+
+Watch time, retention and traffic sources via the YouTube Analytics API — your own channel only.
+Requires the YouTube Analytics API enabled and the `yt-analytics.readonly` scope (run `auth` again
+if you granted access before enabling it).
+
+```bash
+# Channel totals for the last 28 days
+python youtube_cli.py analytics --days 28
+
+# Daily trend
+python youtube_cli.py analytics --days 28 --dimensions day --sort day
+
+# Top videos by views
+python youtube_cli.py analytics --dimensions video --sort -views --max-results 10
+
+# Where the views come from
+python youtube_cli.py analytics --dimensions insightTrafficSourceType --sort -views
+
+# Shorts vs long-form
+python youtube_cli.py analytics --days 90 --dimensions creatorContentType
+
+# One video, explicit date range, raw API JSON
+python youtube_cli.py analytics --video-id VIDEO_ID \
+  --start-date 2026-07-01 --end-date 2026-07-31 --json
+```
+
+Default metrics: `views`, `engagedViews`, `estimatedMinutesWatched`, `averageViewDuration`,
+`averageViewPercentage` (retention), `subscribersGained`, `subscribersLost`, `likes`, `comments`,
+`shares`. Override with `--metrics` ([full list](https://developers.google.com/youtube/analytics/metrics)).
+
+The Analytics API only serves [fixed dimension/metric combinations](https://developers.google.com/youtube/analytics/v2/available_reports), so the CLI fills in what you did not specify: it narrows the default metrics for dimensions that only serve view metrics (traffic source, device, subscribed status…), adds the mandatory sort and result cap for top-N dimensions (`video`, `playlist`, …), and snaps `--dimensions month` to month-aligned dates. Each adjustment is reported on stderr, so `--json` output stays clean — and any flag you pass explicitly wins.
+
+### View Counting (2026-08-24)
+
+On **2026-08-24** YouTube [unified how views are counted](https://support.google.com/youtube/thread/433409976)
+across all formats: a view is counted as soon as playback starts, with no minimum watch time. Shorts
+have worked this way since 2025-03-31.
+
+| Metric | Where | What it counts |
+|--------|-------|----------------|
+| `viewCount` | Data API (`stats`, `videos`, `video-get`) | New definition — every playback start |
+| `views` | Analytics API (`analytics`) | New definition |
+| `engagedViews` | Analytics API (`analytics`, `stats --engaged`) | **Old** definition — views past the initial seconds |
+
+The old number is no longer available anywhere in the public Data API, and only channel owners can
+read `engagedViews`. **A jump in views around 2026-08-24 is a definition change, not growth** —
+compare `engagedViews` across that boundary instead. More detail in [docs/api-notes.md](docs/api-notes.md).
 
 ### List Playlists
 
@@ -192,10 +250,11 @@ python youtube_cli.py playlists --json
 
 ### JSON Output
 
-All commands support `--json` for machine-readable output, useful for scripting and AI agent orchestration:
+All commands support `--json` for machine-readable output, useful for scripting and AI agent orchestration. In JSON mode the payload is the only thing written to stdout — human notes and warnings go to stderr:
 
 ```bash
 python youtube_cli.py videos --json
+python youtube_cli.py analytics --days 28 --json    # verbatim API resultTable
 ```
 
 ## Command Reference
@@ -208,8 +267,11 @@ python youtube_cli.py videos --json
 | `upload` | Upload video with metadata | `--file`, `--title` (required), `--description`, `--tags`, `--category`, `--privacy`, `--thumbnail`, `--playlist`, `--language`, `--publish-at`, `--json` |
 | `video-update` | Update existing video | `--video-id` (required), `--title`, `--description`, `--tags`, `--category`, `--privacy`, `--thumbnail`, `--json` |
 | `video-delete` | Delete a video | `--video-id` (required), `--confirm` (required) |
-| `stats` | View statistics | `--video-id` (optional), `--json` |
+| `stats` | View statistics | `--video-id` (optional), `--engaged`, `--json` |
+| `analytics` | Watch time, retention, traffic sources (Analytics API) | `--days`, `--start-date`, `--end-date`, `--metrics`, `--dimensions`, `--sort`, `--video-id`, `--max-results`, `--json` |
 | `playlists` | List playlists | `--json` |
+
+Run `python youtube_cli.py --version` to print the installed version.
 
 ## Upload Flags
 
@@ -250,6 +312,12 @@ Normal for personal-use apps. Click **Continue** to proceed.
 **Thumbnail upload fails:**
 Custom thumbnails require a [verified YouTube account](https://support.google.com/youtube/answer/171664) (phone number verification).
 
+**`analytics` fails with a scope or permission error:**
+Enable the **YouTube Analytics API** in your Google Cloud project, then run `python youtube_cli.py auth` once — an existing token does not gain a scope that was added later. Analytics works only for channels you own.
+
+**Views suddenly jumped:**
+Not necessarily growth. Since 2026-08-24 a view counts from the start of playback with no minimum watch time. Compare `engagedViews` (`analytics` or `stats --engaged`) to measure like for like.
+
 ## Project Structure
 
 ```
@@ -258,6 +326,8 @@ youtube_cli.py        # Main CLI (single file)
 .env                  # Your credentials (git-ignored)
 requirements.txt      # Python dependencies
 CLAUDE.md             # Instructions for Claude Code
+CHANGELOG.md          # Version history (Keep a Changelog, SemVer)
+docs/api-notes.md     # How the YouTube APIs actually behave
 ```
 
 ## Automation Chain
@@ -286,7 +356,17 @@ This project is part of the curriculum for:
 
 ### Co to je
 
-CLI nástroj pro správu YouTube videí přes YouTube Data API v3. Nahrávání videí, správa metadat, thumbnailů, playlistů a statistik — vše z terminálu. Navržený tak, aby ho mohl ovládat Claude Code nebo jiný AI agent.
+CLI nástroj pro správu YouTube videí přes YouTube Data API v3 a pro čtení výkonu kanálu přes YouTube Analytics API v2. Nahrávání videí, správa metadat, thumbnailů, playlistů, statistiky, watch time i retence — vše z terminálu. Navržený tak, aby ho mohl ovládat Claude Code nebo jiný AI agent.
+
+### Změna počítání zhlédnutí (24. 8. 2026)
+
+YouTube od **24. 8. 2026** počítá zhlédnutí u **všech formátů** od okamžiku, kdy se video začne přehrávat — bez minimální doby sledování (u Shorts to tak funguje od 31. 3. 2025). Původní metrika už ve veřejném Data API není; zůstává jako **engagedViews** („aktivní zhlédnutí") v Analytics API, a jen pro vlastníka kanálu.
+
+- `stats`, `videos`, `video-get` → `viewCount` = nová metodika
+- `analytics` → vrací `views` i `engagedViews` vedle sebe (v defaultních metrikách)
+- `stats --engaged` → doplní zhlédnutí za celou dobu podle obou definic
+
+**Skok ve zhlédnutích kolem 24. 8. 2026 není růst, ale změna definice.** Pro srovnání v čase používejte `engagedViews`.
 
 ### Proč to existuje
 

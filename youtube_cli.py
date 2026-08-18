@@ -8,6 +8,7 @@ Delete requires --confirm flag.
 from __future__ import annotations
 
 import argparse
+import datetime
 import http.client
 import json
 import os
@@ -39,9 +40,42 @@ SCOPES = [
     "https://www.googleapis.com/auth/yt-analytics.readonly",
 ]
 
+__version__ = "2.0.0"
+
 MAX_RETRIES = 10
 RETRIABLE_STATUS_CODES = (500, 502, 503, 504)
 CHUNK_SIZE = 256 * 1024 * 50  # ~12.5 MB
+
+# On 2026-08-24 YouTube unified view counting across all formats (Shorts had it
+# since 2025-03-31): a view is counted the moment playback starts, with no
+# minimum watch time. The old, watch-time-gated number is no longer in the
+# public Data API — it survives as `engagedViews` in the Analytics API.
+VIEWS_METHODOLOGY_DATE = "2026-08-24"
+
+# Analytics default metric set, and the subset that narrow dimensions accept. The
+# Analytics API only serves the fixed combinations listed in its "available reports"
+# — asking for subscriber/engagement metrics alongside e.g. insightTrafficSourceType
+# fails the whole query with "The query is not supported."
+ANALYTICS_DEFAULT_METRICS = (
+    "views,engagedViews,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,"
+    "subscribersGained,subscribersLost,likes,comments,shares"
+)
+ANALYTICS_CORE_METRICS = "views,engagedViews,estimatedMinutesWatched"
+# Verified live 2026-08-18: these reject the full default set but serve the core one.
+CORE_ONLY_DIMENSIONS = {
+    "insightTrafficSourceType",
+    "insightPlaybackLocationType",
+    "deviceType",
+    "operatingSystem",
+    "subscribedStatus",
+}
+# Top-N reports: the API requires both sort and maxResults, otherwise it refuses the query.
+TOP_N_DIMENSIONS = {"video", "playlist", "insightTrafficSourceDetail", "insightPlaybackLocationDetail"}
+VIEWS_NOTE = (
+    f"Note: since {VIEWS_METHODOLOGY_DATE} a view counts as soon as playback starts (no minimum watch\n"
+    "      time), for every format. The previous definition lives on as `engagedViews`\n"
+    "      in the Analytics API — see `analytics` or `stats --engaged`."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +213,73 @@ def _resumable_upload(insert_request) -> dict:
     return response
 
 
+def _engaged_views(start_date: str, video_id: str | None = None) -> dict | None:
+    """Lifetime views + engagedViews from the Analytics API (the pre-2026-08-24 metric).
+
+    Returns None (with a warning on stderr) when the Analytics API is unavailable —
+    callers treat it as optional enrichment, never as a hard failure.
+    """
+    analytics = _get_analytics_service()
+    if analytics is None:
+        print("WARNING: not authenticated for Analytics — skipping engaged views.", file=sys.stderr)
+        return None
+
+    query = {
+        "ids": "channel==MINE",
+        "startDate": start_date,
+        "endDate": datetime.date.today().isoformat(),
+        "metrics": "views,engagedViews",
+    }
+    if video_id:
+        query["filters"] = f"video=={video_id}"
+
+    try:
+        resp = analytics.reports().query(**query).execute()
+    except HttpError as e:
+        print(
+            f"WARNING: engaged views unavailable ({e.resp.status}). If this is a scope error, "
+            "run `auth` once to grant yt-analytics.readonly.",
+            file=sys.stderr,
+        )
+        return None
+
+    rows = resp.get("rows", [])
+    if not rows:
+        return None
+    return {"analytics_views": rows[0][0], "engaged_views": rows[0][1], "since": start_date}
+
+
+def _print_analytics_table(resp: dict) -> None:
+    """Render an Analytics resultTable as aligned columns."""
+    headers = [h.get("name", "") for h in resp.get("columnHeaders", [])]
+    types = [h.get("dataType", "") for h in resp.get("columnHeaders", [])]
+    rows = resp.get("rows", [])
+
+    if not rows:
+        print("No data for this query and date range.")
+        return
+
+    def fmt(value, dtype: str) -> str:
+        if isinstance(value, float) or dtype == "FLOAT":
+            return f"{value:,.2f}"
+        if isinstance(value, int):
+            return f"{value:,}"
+        return str(value)
+
+    table = [[fmt(v, types[i] if i < len(types) else "") for i, v in enumerate(row)] for row in rows]
+    widths = [max(len(headers[i]), max((len(r[i]) for r in table), default=0)) for i in range(len(headers))]
+
+    print("  ".join(h.ljust(widths[i]) for i, h in enumerate(headers)))
+    print("-" * (sum(widths) + 2 * (len(widths) - 1)))
+    for r in table:
+        print("  ".join(c.ljust(widths[i]) for i, c in enumerate(r)))
+    print(f"\n{len(rows)} row(s).")
+
+    if "views" in headers and "engagedViews" in headers:
+        print(f"\nviews        = all playback starts (unified across formats on {VIEWS_METHODOLOGY_DATE})")
+        print(f"engagedViews = views past the initial seconds (the pre-{VIEWS_METHODOLOGY_DATE} definition)")
+
+
 # ---------------------------------------------------------------------------
 # Commands — Auth
 # ---------------------------------------------------------------------------
@@ -216,7 +317,7 @@ def cmd_videos(args: argparse.Namespace) -> None:
 
     items = search_resp.get("items", [])
     if not items:
-        print("No videos found.")
+        print("[]" if args.json else "No videos found.")
         return
 
     # Fetch full details for all videos in one call
@@ -265,7 +366,8 @@ def cmd_videos(args: argparse.Namespace) -> None:
             privacy = status.get("privacyStatus", "")
             print(f"{title:<55} {privacy:<10} {views:<8} {pub:<12} {v['id']}")
 
-    print(f"\nShowing {len(videos)} videos.")
+        print(f"\nShowing {len(videos)} videos.")
+        print(f"\n{VIEWS_NOTE}")
 
 
 def cmd_video_get(args: argparse.Namespace) -> None:
@@ -314,6 +416,7 @@ def cmd_video_get(args: argparse.Namespace) -> None:
             if len(desc) > 300:
                 desc = desc[:300] + "..."
             print(f"Description:  {desc}")
+        print(f"\n{VIEWS_NOTE}")
 
 
 def cmd_stats(args: argparse.Namespace) -> None:
@@ -339,15 +442,29 @@ def cmd_stats(args: argparse.Namespace) -> None:
         snippet = v.get("snippet", {})
         stats = v.get("statistics", {})
 
+        engaged = None
+        if args.engaged:
+            published = snippet.get("publishedAt", "")[:10]
+            if published:
+                engaged = _engaged_views(published, video_id=v["id"])
+
         if args.json:
-            print(json.dumps({"video_id": v["id"], "title": snippet.get("title", ""), **stats}, indent=2))
+            payload = {"video_id": v["id"], "title": snippet.get("title", ""), **stats}
+            if engaged:
+                payload.update(engaged)
+            print(json.dumps(payload, indent=2))
         else:
             print(f"Video:     {snippet.get('title', '')}")
             print(f"Video ID:  {v['id']}")
             print(f"Views:     {stats.get('viewCount', '0')}")
+            if engaged:
+                print(f"  Analytics views:  {engaged['analytics_views']:,} (since {engaged['since']})")
+                print(f"  Engaged views:    {engaged['engaged_views']:,} (pre-{VIEWS_METHODOLOGY_DATE} definition)")
             print(f"Likes:     {stats.get('likeCount', '0')}")
             print(f"Comments:  {stats.get('commentCount', '0')}")
             print(f"Favorites: {stats.get('favoriteCount', '0')}")
+            if not engaged:
+                print(f"\n{VIEWS_NOTE}")
     else:
         # Channel stats
         try:
@@ -367,14 +484,28 @@ def cmd_stats(args: argparse.Namespace) -> None:
         snippet = ch.get("snippet", {})
         stats = ch.get("statistics", {})
 
+        engaged = None
+        if args.engaged:
+            published = snippet.get("publishedAt", "")[:10]
+            if published:
+                engaged = _engaged_views(published)
+
         if args.json:
-            print(json.dumps({"channel_id": ch["id"], "title": snippet.get("title", ""), **stats}, indent=2))
+            payload = {"channel_id": ch["id"], "title": snippet.get("title", ""), **stats}
+            if engaged:
+                payload.update(engaged)
+            print(json.dumps(payload, indent=2))
         else:
             print(f"Channel:      {snippet.get('title', '')}")
             print(f"Channel ID:   {ch['id']}")
             print(f"Subscribers:  {stats.get('subscriberCount', '0')}")
             print(f"Total views:  {stats.get('viewCount', '0')}")
+            if engaged:
+                print(f"  Analytics views:  {engaged['analytics_views']:,} (since {engaged['since']})")
+                print(f"  Engaged views:    {engaged['engaged_views']:,} (pre-{VIEWS_METHODOLOGY_DATE} definition)")
             print(f"Total videos: {stats.get('videoCount', '0')}")
+            if not engaged:
+                print(f"\n{VIEWS_NOTE}")
 
 
 def cmd_playlists(args: argparse.Namespace) -> None:
@@ -392,7 +523,7 @@ def cmd_playlists(args: argparse.Namespace) -> None:
 
     items = resp.get("items", [])
     if not items:
-        print("No playlists found.")
+        print("[]" if args.json else "No playlists found.")
         return
 
     if args.json:
@@ -419,7 +550,7 @@ def cmd_playlists(args: argparse.Namespace) -> None:
                 title = title[:46] + ".."
             print(f"{title:<50} {cd.get('itemCount', 0):<8} {pl['id']}")
 
-    print(f"\n{len(items)} playlists found.")
+        print(f"\n{len(items)} playlists found.")
 
 
 # ---------------------------------------------------------------------------
@@ -657,40 +788,108 @@ def cmd_analytics(args: argparse.Namespace) -> None:
       analytics --dimensions video --sort -views --max-results 10   # top videos
       analytics --dimensions insightTrafficSourceType  # where views come from
     """
-    import datetime
-
     analytics = _get_analytics_service()
     if analytics is None:
         print("ERROR: Not authenticated. Run `auth` to (re-)grant the analytics scope.", file=sys.stderr)
         sys.exit(1)
     end = args.end_date or datetime.date.today().isoformat()
     start = args.start_date or (datetime.date.today() - datetime.timedelta(days=args.days)).isoformat()
+
+    # Adapt the defaults to what the requested dimension actually serves. Explicit
+    # --metrics / --sort / --max-results always win — we only fill in the blanks.
+    metrics = args.metrics
+    sort = args.sort
+    max_results = args.max_results
+    if args.dimensions:
+        if metrics is None and args.dimensions in CORE_ONLY_DIMENSIONS:
+            metrics = ANALYTICS_CORE_METRICS
+            print(f"Note: `{args.dimensions}` only serves {ANALYTICS_CORE_METRICS} — using those.",
+                  file=sys.stderr)
+        if args.dimensions in TOP_N_DIMENSIONS:
+            if not sort:
+                sort = "-views"
+            if not max_results:
+                max_results = 25
+        if args.dimensions == "month":
+            # Both dates must be the first of a month, or the API rejects the query
+            # ("does not align to chosen date dimension") — verified live 2026-08-18.
+            aligned_start, aligned_end = start[:7] + "-01", end[:7] + "-01"
+            if (aligned_start, aligned_end) != (start, end):
+                print(f"Note: `month` needs month-aligned dates — using {aligned_start} → {aligned_end}.",
+                      file=sys.stderr)
+                start, end = aligned_start, aligned_end
+    if metrics is None:
+        metrics = ANALYTICS_DEFAULT_METRICS
+
     query = {
         "ids": "channel==MINE",
         "startDate": start,
         "endDate": end,
-        "metrics": args.metrics,
+        "metrics": metrics,
     }
     if args.dimensions:
         query["dimensions"] = args.dimensions
-    if args.sort:
-        query["sort"] = args.sort
+    if sort:
+        query["sort"] = sort
     if args.video_id:
         query["filters"] = f"video=={args.video_id}"
-    if args.max_results:
-        query["maxResults"] = args.max_results
+    if max_results:
+        query["maxResults"] = max_results
     try:
         resp = analytics.reports().query(**query).execute()
     except HttpError as e:
         print(f"ERROR: YouTube Analytics: {e}", file=sys.stderr)
+        detail = str(e)
+        if e.resp.status in (401, 403):
+            print("HINT: this looks like an auth/scope problem — run `auth` once to grant "
+                  "yt-analytics.readonly, and check the YouTube Analytics API is enabled.",
+                  file=sys.stderr)
+        elif "not supported" in detail:
+            print(f"HINT: the API only serves fixed dimension/metric combinations. Retry with "
+                  f"--metrics {ANALYTICS_CORE_METRICS}, and note that some dimensions need a filter "
+                  "(insightTrafficSourceDetail) or aligned dates (month). Supported combinations: "
+                  "https://developers.google.com/youtube/analytics/v2/available_reports",
+                  file=sys.stderr)
         sys.exit(1)
-    print(json.dumps(resp, ensure_ascii=False, indent=2))
+
+    if args.json:
+        print(json.dumps(resp, ensure_ascii=False, indent=2))
+    else:
+        print(f"Channel analytics: {start} → {end}")
+        if args.video_id:
+            print(f"Filtered to video: {args.video_id}")
+        print()
+        _print_analytics_table(resp)
+
+
+def _splice_negative_values(argv: list[str]) -> list[str]:
+    """Let `--sort -views` work.
+
+    argparse parses a leading `-` as another flag, so the documented
+    `--sort -views` dies with "expected one argument". Rewrite it to
+    `--sort=-views` before parsing. `--sort --json` is left alone so a genuinely
+    missing value still errors out.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(argv):
+        token = argv[i]
+        if token == "--sort" and i + 1 < len(argv):
+            nxt = argv[i + 1]
+            if nxt.startswith("-") and not nxt.startswith("--"):
+                out.append(f"--sort={nxt}")
+                i += 2
+                continue
+        out.append(token)
+        i += 1
+    return out
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="YouTube CLI — manage videos, playlists, uploads, and stats.",
     )
+    parser.add_argument("--version", action="version", version=f"youtube-cli {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     json_kwargs: dict = {"action": "store_true", "help": "Output as JSON"}
@@ -742,6 +941,9 @@ def main() -> None:
     # --- stats ---
     p_stats = subparsers.add_parser("stats", help="View channel or video statistics")
     p_stats.add_argument("--video-id", type=str, help="Video ID (omit for channel stats)")
+    p_stats.add_argument("--engaged", action="store_true",
+                         help=f"Also fetch lifetime engaged views (the pre-{VIEWS_METHODOLOGY_DATE} "
+                              "view definition) from the Analytics API")
     p_stats.add_argument("--json", **json_kwargs)
 
     # --- analytics ---
@@ -752,11 +954,11 @@ def main() -> None:
     p_an.add_argument("--end-date", help="YYYY-MM-DD (default today)")
     p_an.add_argument(
         "--metrics",
-        default="views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,"
-                "subscribersGained,subscribersLost,likes,comments,shares",
-        help="Comma-separated YouTube Analytics metrics")
-    p_an.add_argument("--dimensions", help="e.g. day | video | insightTrafficSourceType")
-    p_an.add_argument("--sort", help="e.g. -views | day")
+        default=None,
+        help=f"Comma-separated YouTube Analytics metrics (default: {ANALYTICS_DEFAULT_METRICS}, "
+             "narrowed automatically for dimensions that only serve the core view metrics)")
+    p_an.add_argument("--dimensions", help="e.g. day | video | insightTrafficSourceType | creatorContentType")
+    p_an.add_argument("--sort", help="e.g. -views | day (a leading minus sorts descending)")
     p_an.add_argument("--video-id", help="Filter to a single video")
     p_an.add_argument("--max-results", type=int, help="Row cap (with dimensions)")
     p_an.add_argument("--json", **json_kwargs)
@@ -765,7 +967,7 @@ def main() -> None:
     p_pl = subparsers.add_parser("playlists", help="List playlists")
     p_pl.add_argument("--json", **json_kwargs)
 
-    args = parser.parse_args()
+    args = parser.parse_args(_splice_negative_values(sys.argv[1:]))
 
     # Auth command doesn't need existing credentials
     if args.command == "auth":
