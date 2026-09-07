@@ -1,75 +1,80 @@
 # YouTube CLI
 
-**v2.0.0** · [Changelog](CHANGELOG.md) · [API notes](docs/api-notes.md)
+**v2.0.0** · [Changelog](CHANGELOG.md) · [Poznámky k API](docs/api-notes.md)
 
-A Python command-line tool for managing [YouTube](https://www.youtube.com/) videos via the YouTube Data API v3, plus channel analytics via the YouTube Analytics API v2. Upload videos, manage metadata, set thumbnails, organize playlists, read stats, watch time and retention — all from the terminal. Built to be orchestrated by [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or any AI coding agent.
+Python nástroj do příkazové řádky na správu videí na [YouTube](https://www.youtube.com/) přes YouTube Data API v3 a na čtení výkonu kanálu přes YouTube Analytics API v2. Nahrávání videí, správa metadat, thumbnaily, playlisty, statistiky, watch time i retence, všechno z terminálu. Postavený tak, aby ho mohl řídit [Claude Code](https://docs.anthropic.com/en/docs/claude-code) nebo jiný AI agent.
 
-> **📊 Views changed on 2026-08-24.** YouTube now counts a view the moment playback starts, with no minimum watch time, for **every** format (Shorts have worked this way since 2025-03-31). The old definition is gone from the public Data API and survives as **engaged views** in the Analytics API. This CLI shows both — see [View counting](#view-counting-2026-08-24).
+> [!TIP]
+> **Appka je zdarma a je tvoje.** Naklonuj si ji, používej ji, přestav si ji po svém.
+>
+> Nevíš, jak ji rozjet? Nebo chceš AI v marketingu používat systematicky: řídit z jednoho místa všechny kanály, automatizovat rutinu, postavit si vlastní znalostní bázi a vibe codovat si nástroje na míru své firmě? To učím v kurzu **[AI First](https://aifirst.cz)**. Tahle appka je v něm vysvětlená i s tím, jak si postavit vlastní.
 
-## Why This Exists
+> **📊 Od 24. 8. 2026 se zhlédnutí počítají jinak.** YouTube počítá zhlédnutí od okamžiku, kdy se spustí přehrávání, bez minimální doby sledování, a to u **všech** formátů (u Shorts to tak funguje od 31. 3. 2025). Původní definice zmizela z veřejného Data API a přežívá jako **engaged views** v Analytics API. Tohle CLI ukazuje obojí, viz [Počítání zhlédnutí](#počítání-zhlédnutí-24-8-2026).
 
-Publishing video content on YouTube involves repetitive manual work: uploading files through the web UI, typing titles and descriptions, setting privacy, adding thumbnails, organizing playlists. This CLI automates those operations so they can be scripted or chained with other tools.
+## Proč to vzniklo
 
-For example, a podcast publishing workflow orchestrated by Claude Code:
+Publikování videa na YouTube je spousta opakované ruční práce: nahrát soubor přes webové rozhraní, vyplnit titulek a popis, nastavit soukromí, přidat thumbnail, zařadit do playlistu. Tohle CLI ty operace automatizuje, takže se dají skriptovat nebo řetězit s dalšími nástroji.
 
-1. **Transcribe** audio with [whisper-cz-en](https://github.com/faborsky/whisper-cz-en)
-2. **Generate metadata** (title, description, chapters) from the transcript
-3. **Upload audio** to Podbean with [podbean-app](https://github.com/faborsky/podbean-app)
-4. **Upload video** to YouTube with this CLI
-5. **Set thumbnail** and add to playlist — automatically
+Takhle třeba vypadá publikace podcastu řízená přes Claude Code:
 
-All in a single conversation. You create content, AI does the admin.
+1. **Přepis** audia přes [whisper-cz-en](https://github.com/faborsky/whisper-cz-en)
+2. **Vygenerování metadat** (titulek, popis, kapitoly) z přepisu
+3. **Nahrání audia** na Podbean přes [podbean-app](https://github.com/faborsky/podbean-app)
+4. **Nahrání videa** na YouTube tímhle CLI
+5. **Nastavení thumbnailu** a zařazení do playlistu, automaticky
 
-## Prerequisites
+Všechno v jedné konverzaci. Ty tvoříš obsah, AI dělá administrativu.
+
+## Co budeš potřebovat
 
 - **Python 3.9+**
-- **YouTube channel** linked to a Google account
-- **Google Cloud project** with YouTube Data API v3 enabled and OAuth 2.0 credentials
-- For the `analytics` command: **YouTube Analytics API** enabled in the same project
+- **Kanál na YouTube** propojený s účtem Google
+- **Projekt v Google Cloud** s povoleným YouTube Data API v3 a OAuth 2.0 credentials
+- Pro příkaz `analytics`: **YouTube Analytics API** povolené ve stejném projektu
 
-## Google Cloud Setup
+## Nastavení Google Cloud
 
-Before using the CLI, you need to set up a Google Cloud project with OAuth credentials. This is a one-time process.
+Než CLI použiješ, musíš si založit projekt v Google Cloud a vytvořit OAuth credentials. Je to jednorázová věc.
 
-### 1. Create a Google Cloud Project
+### 1. Založ projekt v Google Cloud
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Click the project dropdown (top bar) → **New Project**
-3. Name it (e.g. `youtube-cli`) → **Create**
-4. Select the new project from the dropdown
+1. Jdi do [Google Cloud Console](https://console.cloud.google.com/)
+2. Klikni na rozbalovátko projektů (horní lišta) → **New Project**
+3. Pojmenuj ho (třeba `youtube-cli`) → **Create**
+4. Vyber nový projekt v rozbalovátku
 
-### 2. Enable the APIs
+### 2. Povol API
 
-1. Go to **APIs & Services → Library** ([direct link](https://console.cloud.google.com/apis/library))
-2. Search for **YouTube Data API v3** → click it → **Enable**
-3. Search for **YouTube Analytics API** → click it → **Enable** (needed for the `analytics` command and `stats --engaged`; skip if you only publish videos)
+1. Jdi do **APIs & Services → Library** ([přímý odkaz](https://console.cloud.google.com/apis/library))
+2. Najdi **YouTube Data API v3** → klikni na něj → **Enable**
+3. Najdi **YouTube Analytics API** → klikni na něj → **Enable** (potřebuješ ho pro příkaz `analytics` a pro `stats --engaged`; přeskoč, pokud budeš jenom publikovat videa)
 
-### 3. Configure OAuth Consent Screen
+### 3. Nastav OAuth consent screen
 
-1. Go to **APIs & Services → OAuth consent screen**
-2. Select **External** user type → **Create**
-3. Fill in required fields:
-   - **App name:** any name (e.g. `Video Manager CLI`)
-   - **User support email:** your email
-   - **Developer contact:** your email
-4. Click **Save and Continue**
-5. On the **Scopes** page → **Add or Remove Scopes** → add `https://www.googleapis.com/auth/youtube` and `https://www.googleapis.com/auth/yt-analytics.readonly` → **Save and Continue**
-6. On the **Test users** page → **Add Users** → add your Gmail address → **Save and Continue**
+1. Jdi do **APIs & Services → OAuth consent screen**
+2. Vyber typ uživatele **External** → **Create**
+3. Vyplň povinná pole:
+   - **App name:** jakýkoliv název (třeba `Video Manager CLI`)
+   - **User support email:** tvůj e-mail
+   - **Developer contact:** tvůj e-mail
+4. Klikni na **Save and Continue**
+5. Na stránce **Scopes** → **Add or Remove Scopes** → přidej `https://www.googleapis.com/auth/youtube` a `https://www.googleapis.com/auth/yt-analytics.readonly` → **Save and Continue**
+6. Na stránce **Test users** → **Add Users** → přidej svou gmailovou adresu → **Save and Continue**
 
-> **Token expiry note:** In "Testing" mode, OAuth refresh tokens expire after **7 days**. To get long-lived tokens, click **Publish App** on the OAuth consent screen page. For personal-use apps with only your own account, Google typically doesn't require additional verification.
+> **Pozor na expiraci tokenu:** V režimu „Testing“ vyprší OAuth refresh tokeny po **7 dnech**. Dlouhodobě platné tokeny dostaneš, když na stránce OAuth consent screen klikneš na **Publish App**. U appek pro vlastní potřebu, kde je jenom tvůj vlastní účet, Google obvykle žádné další ověřování nechce.
 
-### 4. Create OAuth Credentials
+### 4. Vytvoř OAuth credentials
 
-1. Go to **APIs & Services → Credentials** ([direct link](https://console.cloud.google.com/apis/credentials))
-2. Click **Create Credentials → OAuth client ID**
-3. Application type: **Desktop app**
-4. Name: any name (e.g. `YouTube CLI`)
-5. Click **Create**
-6. Copy the **Client ID** and **Client Secret**
+1. Jdi do **APIs & Services → Credentials** ([přímý odkaz](https://console.cloud.google.com/apis/credentials))
+2. Klikni na **Create Credentials → OAuth client ID**
+3. Typ aplikace: **Desktop app**
+4. Název: jakýkoliv (třeba `YouTube CLI`)
+5. Klikni na **Create**
+6. Zkopíruj si **Client ID** a **Client Secret**
 
-You now have everything needed. The Client ID looks like `123456789-abc.apps.googleusercontent.com` and the Client Secret is a short alphanumeric string.
+Teď máš všechno, co potřebuješ. Client ID vypadá jako `123456789-abc.apps.googleusercontent.com`, Client Secret je krátký alfanumerický řetězec.
 
-## Installation
+## Instalace
 
 ```bash
 git clone https://github.com/faborsky/youtube-cli-app.git
@@ -80,59 +85,59 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 cp .env.example .env
-# Edit .env and add your Google Cloud OAuth credentials
+# Uprav .env a vlož svoje Google Cloud OAuth credentials
 ```
 
-## Configuration
+## Konfigurace
 
-Edit `.env` with your OAuth credentials from the Google Cloud setup:
+Do `.env` vlož OAuth credentials z nastavení Google Cloud:
 
 ```
 YOUTUBE_CLIENT_ID=your-client-id-here
 YOUTUBE_CLIENT_SECRET=your-client-secret-here
 ```
 
-Then authenticate (one-time — opens your browser):
+Pak se jednorázově přihlas (otevře se ti prohlížeč):
 
 ```bash
 python youtube_cli.py auth
 ```
 
-This saves a long-lived refresh token to `~/.youtube-cli-token.json`. Subsequent commands use it automatically — no browser needed.
+Uloží se dlouhodobě platný refresh token do `~/.youtube-cli-token.json`. Další příkazy si ho vezmou samy, prohlížeč už není potřeba.
 
-## Usage
+## Používání
 
-Always activate the virtual environment first:
+Vždycky si nejdřív aktivuj virtuální prostředí:
 
 ```bash
 source venv/bin/activate
 ```
 
-### List Videos
+### Výpis videí
 
 ```bash
 python youtube_cli.py videos
 python youtube_cli.py videos --limit 10 --json
 ```
 
-### Get Video Details
+### Detail videa
 
 ```bash
 python youtube_cli.py video-get --video-id VIDEO_ID
 python youtube_cli.py video-get --video-id VIDEO_ID --json
 ```
 
-### Upload Video
+### Nahrání videa
 
-Videos are uploaded as **private** by default for safety.
+Videa se pro jistotu nahrávají jako **private** (soukromá).
 
 ```bash
-# Basic upload (private)
+# Základní nahrání (private)
 python youtube_cli.py upload \
   --file /path/to/video.mp4 \
   --title "My Video Title"
 
-# Full upload with all metadata
+# Nahrání se všemi metadaty
 python youtube_cli.py upload \
   --file /path/to/video.mp4 \
   --title "My Video Title" \
@@ -145,18 +150,18 @@ python youtube_cli.py upload \
   --language en \
   --json
 
-# Scheduled publish
+# Naplánované zveřejnění
 python youtube_cli.py upload \
   --file /path/to/video.mp4 \
   --title "Scheduled Video" \
   --publish-at "2026-04-10T15:00:00Z"
 ```
 
-Upload uses resumable transfer with ~12.5 MB chunks and automatic retry with exponential backoff on server errors.
+Nahrávání běží resumable přenosem po blocích zhruba 12,5&nbsp;MB a při chybách serveru se automaticky opakuje s exponenciálním backoffem.
 
-### Update Video Metadata
+### Úprava metadat videa
 
-Only the specified fields are changed — everything else stays as-is:
+Změní se jenom pole, která zadáš, zbytek zůstane, jak byl:
 
 ```bash
 python youtube_cli.py video-update --video-id VIDEO_ID --title "New Title"
@@ -169,245 +174,187 @@ python youtube_cli.py video-update --video-id VIDEO_ID \
   --json
 ```
 
-### Delete Video
+### Smazání videa
 
-Requires `--confirm` flag for safety:
+Kvůli bezpečnosti vyžaduje flag `--confirm`:
 
 ```bash
 python youtube_cli.py video-delete --video-id VIDEO_ID --confirm
 ```
 
-### Channel & Video Statistics
+### Statistiky kanálu a videí
 
 ```bash
-# Channel overview
+# Přehled kanálu
 python youtube_cli.py stats
 
-# Specific video stats
+# Statistiky konkrétního videa
 python youtube_cli.py stats --video-id VIDEO_ID
 python youtube_cli.py stats --video-id VIDEO_ID --json
 
-# Add lifetime engaged views (the pre-2026-08-24 view definition)
+# Přidá engaged views za celou dobu (definice zhlédnutí platná do 24. 8. 2026)
 python youtube_cli.py stats --engaged
 python youtube_cli.py stats --video-id VIDEO_ID --engaged
 ```
 
-### Analytics
+### Analytika
 
-Watch time, retention and traffic sources via the YouTube Analytics API — your own channel only.
-Requires the YouTube Analytics API enabled and the `yt-analytics.readonly` scope (run `auth` again
-if you granted access before enabling it).
+Watch time, retence a zdroje návštěvnosti přes YouTube Analytics API, jenom pro tvůj vlastní kanál.
+Vyžaduje povolené YouTube Analytics API a scope `yt-analytics.readonly` (pokud jsi přístup udělil
+dřív, než jsi API povolil, spusť `auth` znovu).
 
 ```bash
-# Channel totals for the last 28 days
+# Souhrn za kanál za posledních 28 dní
 python youtube_cli.py analytics --days 28
 
-# Daily trend
+# Denní vývoj
 python youtube_cli.py analytics --days 28 --dimensions day --sort day
 
-# Top videos by views
+# Nejsledovanější videa
 python youtube_cli.py analytics --dimensions video --sort -views --max-results 10
 
-# Where the views come from
+# Odkud zhlédnutí chodí
 python youtube_cli.py analytics --dimensions insightTrafficSourceType --sort -views
 
-# Shorts vs long-form
+# Shorts vs. dlouhá videa
 python youtube_cli.py analytics --days 90 --dimensions creatorContentType
 
-# One video, explicit date range, raw API JSON
+# Jedno video, konkrétní rozsah dat, surové JSON z API
 python youtube_cli.py analytics --video-id VIDEO_ID \
   --start-date 2026-07-01 --end-date 2026-07-31 --json
 ```
 
-Default metrics: `views`, `engagedViews`, `estimatedMinutesWatched`, `averageViewDuration`,
-`averageViewPercentage` (retention), `subscribersGained`, `subscribersLost`, `likes`, `comments`,
-`shares`. Override with `--metrics` ([full list](https://developers.google.com/youtube/analytics/metrics)).
+Výchozí metriky: `views`, `engagedViews`, `estimatedMinutesWatched`, `averageViewDuration`,
+`averageViewPercentage` (retence), `subscribersGained`, `subscribersLost`, `likes`, `comments`,
+`shares`. Změníš je přes `--metrics` ([celý seznam](https://developers.google.com/youtube/analytics/metrics)).
 
-The Analytics API only serves [fixed dimension/metric combinations](https://developers.google.com/youtube/analytics/v2/available_reports), so the CLI fills in what you did not specify: it narrows the default metrics for dimensions that only serve view metrics (traffic source, device, subscribed status…), adds the mandatory sort and result cap for top-N dimensions (`video`, `playlist`, …), and snaps `--dimensions month` to month-aligned dates. Each adjustment is reported on stderr, so `--json` output stays clean — and any flag you pass explicitly wins.
+Analytics API obsluhuje jenom [pevně dané kombinace dimenzí a metrik](https://developers.google.com/youtube/analytics/v2/available_reports), takže CLI doplní, co nezadáš: u dimenzí, které umí jenom metriky zhlédnutí (zdroj návštěvnosti, zařízení, stav odběru…), zúží výchozí sadu metrik, u top-N dimenzí (`video`, `playlist` a dalších) přidá povinné řazení a limit výsledků a u `--dimensions month` zarovná data na celé měsíce. Každou úpravu vypíše na stderr, takže výstup s `--json` zůstane čistý. A cokoliv zadáš sám, má přednost.
 
-### View Counting (2026-08-24)
+### Počítání zhlédnutí (24. 8. 2026)
 
-On **2026-08-24** YouTube [unified how views are counted](https://support.google.com/youtube/thread/433409976)
-across all formats: a view is counted as soon as playback starts, with no minimum watch time. Shorts
-have worked this way since 2025-03-31.
+**24. 8. 2026** YouTube [sjednotil počítání zhlédnutí](https://support.google.com/youtube/thread/433409976)
+napříč všemi formáty: zhlédnutí se počítá hned, jak se spustí přehrávání, bez minimální doby sledování.
+U Shorts to tak funguje od 31. 3. 2025.
 
-| Metric | Where | What it counts |
-|--------|-------|----------------|
-| `viewCount` | Data API (`stats`, `videos`, `video-get`) | New definition — every playback start |
-| `views` | Analytics API (`analytics`) | New definition |
-| `engagedViews` | Analytics API (`analytics`, `stats --engaged`) | **Old** definition — views past the initial seconds |
+| Metrika | Kde | Co počítá |
+|---------|-----|-----------|
+| `viewCount` | Data API (`stats`, `videos`, `video-get`) | Nová definice, každé spuštění přehrávání |
+| `views` | Analytics API (`analytics`) | Nová definice |
+| `engagedViews` | Analytics API (`analytics`, `stats --engaged`) | **Stará** definice, zhlédnutí po prvních sekundách |
 
-The old number is no longer available anywhere in the public Data API, and only channel owners can
-read `engagedViews`. **A jump in views around 2026-08-24 is a definition change, not growth** —
-compare `engagedViews` across that boundary instead. More detail in [docs/api-notes.md](docs/api-notes.md).
+Staré číslo už ve veřejném Data API nikde není a `engagedViews` si přečte jenom vlastník kanálu.
+**Skok ve zhlédnutích kolem 24. 8. 2026 není růst, ale změna definice.** Pro srovnání přes tuhle
+hranici používej `engagedViews`. Víc detailů v [docs/api-notes.md](docs/api-notes.md).
 
-### List Playlists
+### Výpis playlistů
 
 ```bash
 python youtube_cli.py playlists
 python youtube_cli.py playlists --json
 ```
 
-### JSON Output
+### Výstup v JSON
 
-All commands support `--json` for machine-readable output, useful for scripting and AI agent orchestration. In JSON mode the payload is the only thing written to stdout — human notes and warnings go to stderr:
+Všechny příkazy umí `--json`, tedy strojově čitelný výstup. Hodí se na skriptování a na řízení AI agentem. V režimu JSON jde na stdout jenom samotná data, poznámky a varování pro člověka odcházejí na stderr:
 
 ```bash
 python youtube_cli.py videos --json
-python youtube_cli.py analytics --days 28 --json    # verbatim API resultTable
+python youtube_cli.py analytics --days 28 --json    # doslovná resultTable z API
 ```
 
-## Command Reference
+## Přehled příkazů
 
-| Command | Description | Key Flags |
-|---------|-------------|-----------|
-| `auth` | One-time OAuth setup (opens browser) | — |
-| `videos` | List recent videos | `--limit`, `--json` |
-| `video-get` | Get video details | `--video-id` (required), `--json` |
-| `upload` | Upload video with metadata | `--file`, `--title` (required), `--description`, `--tags`, `--category`, `--privacy`, `--thumbnail`, `--playlist`, `--language`, `--publish-at`, `--json` |
-| `video-update` | Update existing video | `--video-id` (required), `--title`, `--description`, `--tags`, `--category`, `--privacy`, `--thumbnail`, `--json` |
-| `video-delete` | Delete a video | `--video-id` (required), `--confirm` (required) |
-| `stats` | View statistics | `--video-id` (optional), `--engaged`, `--json` |
-| `analytics` | Watch time, retention, traffic sources (Analytics API) | `--days`, `--start-date`, `--end-date`, `--metrics`, `--dimensions`, `--sort`, `--video-id`, `--max-results`, `--json` |
-| `playlists` | List playlists | `--json` |
+| Příkaz | Co dělá | Hlavní flagy |
+|--------|---------|--------------|
+| `auth` | Jednorázové nastavení OAuth (otevře prohlížeč) | žádné |
+| `videos` | Výpis posledních videí | `--limit`, `--json` |
+| `video-get` | Detail videa | `--video-id` (povinný), `--json` |
+| `upload` | Nahrání videa s metadaty | `--file`, `--title` (povinné), `--description`, `--tags`, `--category`, `--privacy`, `--thumbnail`, `--playlist`, `--language`, `--publish-at`, `--json` |
+| `video-update` | Úprava existujícího videa | `--video-id` (povinný), `--title`, `--description`, `--tags`, `--category`, `--privacy`, `--thumbnail`, `--json` |
+| `video-delete` | Smazání videa | `--video-id` (povinný), `--confirm` (povinný) |
+| `stats` | Statistiky zhlédnutí | `--video-id` (volitelný), `--engaged`, `--json` |
+| `analytics` | Watch time, retence, zdroje návštěvnosti (Analytics API) | `--days`, `--start-date`, `--end-date`, `--metrics`, `--dimensions`, `--sort`, `--video-id`, `--max-results`, `--json` |
+| `playlists` | Výpis playlistů | `--json` |
 
-Run `python youtube_cli.py --version` to print the installed version.
+Nainstalovanou verzi vypíše `python youtube_cli.py --version`.
 
-## Upload Flags
+## Flagy pro nahrávání
 
-| Flag | Required | Default | Description |
-|------|----------|---------|-------------|
-| `--file` | Yes | — | Path to video file (MP4, MOV, etc.) |
-| `--title` | Yes | — | Video title |
-| `--description` | No | empty | Video description |
-| `--tags` | No | none | Comma-separated tags |
-| `--category` | No | `22` | YouTube [category ID](https://developers.google.com/youtube/v3/docs/videoCategories/list) (22 = People & Blogs) |
-| `--privacy` | No | `private` | `private`, `unlisted`, or `public` |
-| `--thumbnail` | No | none | Path to thumbnail image (JPG/PNG) |
-| `--playlist` | No | none | Playlist ID to add the video to |
-| `--language` | No | none | Language code (e.g. `en`, `cs`, `de`) |
-| `--publish-at` | No | none | Schedule publish (ISO 8601, forces privacy to `private`) |
+| Flag | Povinný | Výchozí | Co dělá |
+|------|---------|---------|---------|
+| `--file` | ano | nemá | Cesta k souboru s videem (MP4, MOV a další) |
+| `--title` | ano | nemá | Titulek videa |
+| `--description` | ne | prázdný | Popis videa |
+| `--tags` | ne | žádné | Tagy oddělené čárkou |
+| `--category` | ne | `22` | [ID kategorie](https://developers.google.com/youtube/v3/docs/videoCategories/list) na YouTube (22 = People & Blogs) |
+| `--privacy` | ne | `private` | `private`, `unlisted`, nebo `public` |
+| `--thumbnail` | ne | žádný | Cesta k obrázku thumbnailu (JPG/PNG) |
+| `--playlist` | ne | žádné | ID playlistu, do kterého se video přidá |
+| `--language` | ne | žádný | Kód jazyka (třeba `en`, `cs`, `de`) |
+| `--publish-at` | ne | žádné | Naplánované zveřejnění (ISO 8601, vynutí privacy `private`) |
 
-## Safety
+## Bezpečnost
 
-- **Private by default** — uploaded videos are set to `private`. You must explicitly use `--privacy public` or update later with `video-update`.
-- **Delete requires confirmation** — the `--confirm` flag is mandatory for `video-delete`.
-- **Credentials stay local** — `.env` is git-ignored, OAuth token is stored in your home directory (`~/.youtube-cli-token.json`).
-- **No secrets in code** — all credentials come from environment variables.
+- **Ve výchozím stavu private.** Nahraná videa jsou `private`. Zveřejnit je musíš sám, buď přes `--privacy public`, nebo později přes `video-update`.
+- **Mazání vyžaduje potvrzení.** Flag `--confirm` je u `video-delete` povinný.
+- **Credentials zůstávají u tebe.** `.env` je v gitignore, OAuth token leží v tvém domovském adresáři (`~/.youtube-cli-token.json`).
+- **Žádné klíče v kódu.** Všechny přístupy jdou z proměnných prostředí.
 
-## Troubleshooting
+## Když něco nefunguje
 
-**"Not authenticated" error:**
-Run `python youtube_cli.py auth` to complete the OAuth flow.
+**Chyba „Not authenticated“:**
+Spusť `python youtube_cli.py auth` a dokonči OAuth přihlášení.
 
-**"Token has been expired or revoked":**
-Your refresh token expired (happens in "Testing" mode after 7 days). Run `auth` again. To avoid this, publish your app in Google Cloud Console.
+**Chyba „Token has been expired or revoked“:**
+Vypršel ti refresh token (v režimu „Testing“ se to stane po 7 dnech). Spusť znovu `auth`. Abys tomu předešel, publikuj appku v Google Cloud Console.
 
-**"YouTube API quota exceeded":**
-Default quota is 10,000 units/day. A video upload costs ~1,600 units. Check usage at [Google Cloud Quotas](https://console.cloud.google.com/iam-admin/quotas).
+**Chyba „YouTube API quota exceeded“:**
+Výchozí kvóta je 10&nbsp;000 jednotek na den, jedno nahrání videa stojí zhruba 1&nbsp;600 jednotek. Spotřebu zkontroluješ v [Google Cloud Quotas](https://console.cloud.google.com/iam-admin/quotas).
 
-**"Google hasn't verified this app" warning:**
-Normal for personal-use apps. Click **Continue** to proceed.
+**Varování „Google hasn't verified this app“:**
+U appek pro vlastní potřebu je to normální. Klikni na **Continue** a pokračuj.
 
-**Thumbnail upload fails:**
-Custom thumbnails require a [verified YouTube account](https://support.google.com/youtube/answer/171664) (phone number verification).
+**Nahrání thumbnailu selže:**
+Vlastní thumbnaily vyžadují [ověřený účet na YouTube](https://support.google.com/youtube/answer/171664) (ověření telefonním číslem).
 
-**`analytics` fails with a scope or permission error:**
-Enable the **YouTube Analytics API** in your Google Cloud project, then run `python youtube_cli.py auth` once — an existing token does not gain a scope that was added later. Analytics works only for channels you own.
+**`analytics` hlásí chybu se scopem nebo s oprávněním:**
+Povol v projektu Google Cloud **YouTube Analytics API** a pak jednou spusť `python youtube_cli.py auth`. Existující token nový scope sám od sebe nezíská. Analytika funguje jenom pro kanály, které vlastníš.
 
-**Views suddenly jumped:**
-Not necessarily growth. Since 2026-08-24 a view counts from the start of playback with no minimum watch time. Compare `engagedViews` (`analytics` or `stats --engaged`) to measure like for like.
+**Zhlédnutí najednou vyskočila:**
+Nemusí to být růst. Od 24. 8. 2026 se zhlédnutí počítá od spuštění přehrávání, bez minimální doby sledování. Abys porovnával stejné se stejným, koukej na `engagedViews` (příkaz `analytics` nebo `stats --engaged`).
 
-## Project Structure
+## Struktura projektu
 
 ```
-youtube_cli.py        # Main CLI (single file)
-.env.example          # Template for OAuth credentials
-.env                  # Your credentials (git-ignored)
-requirements.txt      # Python dependencies
-CLAUDE.md             # Instructions for Claude Code
-CHANGELOG.md          # Version history (Keep a Changelog, SemVer)
-docs/api-notes.md     # How the YouTube APIs actually behave
+youtube_cli.py        # Hlavní CLI (jeden soubor)
+.env.example          # Šablona pro OAuth credentials
+.env                  # Tvoje credentials (v gitignore)
+requirements.txt      # Python závislosti
+CLAUDE.md             # Instrukce pro Claude Code
+CHANGELOG.md          # Historie verzí (Keep a Changelog, SemVer)
+docs/api-notes.md     # Jak se YouTube API reálně chová
 ```
 
-## Automation Chain
+## Řetěz automatizace
 
-This CLI is designed to work as part of a larger AI-powered content pipeline:
+Tohle CLI je stavěné jako součást větší obsahové linky poháněné AI:
 
-| Step | Tool | What It Does |
-|------|------|-------------|
-| Transcription | [whisper-cz-en](https://github.com/faborsky/whisper-cz-en) | Local transcription with Whisper Large V3 |
-| Show notes | Claude Code | Generate titles, descriptions, chapters |
-| Cover art | [nanobanana-agent](https://github.com/faborsky/nanobonana-agent-public) | Generate artwork with AI |
-| Audio publishing | [podbean-app](https://github.com/faborsky/podbean-app) | Upload audio podcasts |
-| Video publishing | **youtube-cli-app** (this repo) | Upload videos to YouTube |
+| Krok | Nástroj | Co dělá |
+|------|---------|---------|
+| Přepis | [whisper-cz-en](https://github.com/faborsky/whisper-cz-en) | Lokální přepis přes Whisper Large V3 |
+| Poznámky k epizodě | Claude Code | Vygeneruje titulky, popisy, kapitoly |
+| Cover | [nanobanana-agent](https://github.com/faborsky/nanobonana-agent-public) | Vygeneruje grafiku pomocí AI |
+| Publikace audia | [podbean-app](https://github.com/faborsky/podbean-app) | Nahraje audio podcasty |
+| Publikace videa | **youtube-cli-app** (tenhle repozitář) | Nahraje videa na YouTube |
 
-## About
+## O projektu
 
-Built by [Jindrich Faborsky](https://github.com/faborsky) as part of the content automation toolkit. Used in production for managing a Czech podcast on YouTube.
+Postavil [Jindřich Fáborský](https://github.com/faborsky) jako součást své sady nástrojů na automatizaci obsahu. V produkci se s ním spravuje český podcast na YouTube.
 
-This project is part of the curriculum for:
-- **[Vibe Coding for Marketers](https://vibecodingformarketers.com)** — an international course teaching marketers to build tools with AI
-- **[AI First](https://www.aifirst.cz)** — a Czech course on AI-first thinking for entrepreneurs and marketers
+Nástroj je zároveň součástí kurikula mezinárodního kurzu **[Vibe Coding for Marketers](https://vibecodingformarketers.com)**, kde se marketéři učí stavět si nástroje s AI.
 
 ---
 
-## Česky
-
-### Co to je
-
-CLI nástroj pro správu YouTube videí přes YouTube Data API v3 a pro čtení výkonu kanálu přes YouTube Analytics API v2. Nahrávání videí, správa metadat, thumbnailů, playlistů, statistiky, watch time i retence — vše z terminálu. Navržený tak, aby ho mohl ovládat Claude Code nebo jiný AI agent.
-
-### Změna počítání zhlédnutí (24. 8. 2026)
-
-YouTube od **24. 8. 2026** počítá zhlédnutí u **všech formátů** od okamžiku, kdy se video začne přehrávat — bez minimální doby sledování (u Shorts to tak funguje od 31. 3. 2025). Původní metrika už ve veřejném Data API není; zůstává jako **engagedViews** („aktivní zhlédnutí") v Analytics API, a jen pro vlastníka kanálu.
-
-- `stats`, `videos`, `video-get` → `viewCount` = nová metodika
-- `analytics` → vrací `views` i `engagedViews` vedle sebe (v defaultních metrikách)
-- `stats --engaged` → doplní zhlédnutí za celou dobu podle obou definic
-
-**Skok ve zhlédnutích kolem 24. 8. 2026 není růst, ale změna definice.** Pro srovnání v čase používejte `engagedViews`.
-
-### Proč to existuje
-
-Publikování videa na YouTube zahrnuje spoustu opakující se práce: nahrávání přes webové rozhraní, vyplňování titulků a popisků, nastavování soukromí, přidávání thumbnailů. Tohle CLI to automatizuje a dá se řetězit s dalšími nástroji do kompletního publikačního workflow.
-
-### Instalace
-
-```bash
-git clone https://github.com/faborsky/youtube-cli-app.git
-cd youtube-cli-app
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-# Upravte .env a vložte své Google Cloud OAuth credentials
-```
-
-### Nastavení Google Cloud
-
-1. Vytvořte projekt na [Google Cloud Console](https://console.cloud.google.com/)
-2. Povolte **YouTube Data API v3** (APIs & Services → Library)
-3. Nastavte **OAuth consent screen** (External, přidejte svůj email jako test user)
-4. Vytvořte **OAuth client ID** (typ: Desktop app)
-5. Zkopírujte Client ID a Client Secret do `.env`
-6. Spusťte `python youtube_cli.py auth` — otevře se prohlížeč pro jednorázové přihlášení
-
-Podrobný návod v angličtině výše v sekci [Google Cloud Setup](#google-cloud-setup).
-
-### Bezpečnost
-
-- Videa se nahrávají jako **private** (soukromá) — musíte explicitně zveřejnit
-- Smazání vyžaduje `--confirm` flag
-- Credentials jsou v `.env` (nikdy se necommitují do gitu)
-
-### Kde se to učí
-
-- **[Vibe Coding for Marketers](https://vibecodingformarketers.com)** — mezinárodní kurz (EN), kde se marketéři učí stavět nástroje s AI
-- **[AI First](https://www.aifirst.cz)** — český kurz o AI-first přístupu pro podnikatele a marketéry
-
----
-
-## License
+## Licence
 
 MIT
