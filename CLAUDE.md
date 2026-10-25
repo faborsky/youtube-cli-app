@@ -86,7 +86,7 @@ Full detail: [docs/api-notes.md](docs/api-notes.md).
 
 ## Release checklist
 
-Bump `__version__` in `youtube_cli.py` → update README (version line, command tables, new flags),
+Bump `__version__` in `youtube_cli.py` → update `README.md` + `README.cs.md` (version line, command tables, new flags),
 this file (command table + anything factual that changed), `CHANGELOG.md` (new
 `## [x.y.z] — YYYY-MM-DD` entry) and `docs/api-notes.md` if API behaviour changed → smoke-test the
 commands you touched against the live API, including `--json` validity → commit → tag `vX.Y.Z` →
@@ -95,10 +95,14 @@ notes = the CHANGELOG entry). A pushed tag alone does not show on /releases.
 
 ## Documentation map
 
-- **[README.md](README.md)** — user docs (EN + short CZ section): Google Cloud setup, command
-  reference, troubleshooting.
+- **[README.md](README.md)** (EN) / **[README.cs.md](README.cs.md)** (CZ) — user docs: Google Cloud setup,
+  command reference, troubleshooting. Short versions in `i18n/`.
 - **[docs/api-notes.md](docs/api-notes.md)** — how the APIs actually behave: view counting
   methodology, quota costs, Data-vs-Analytics discrepancies, gotchas found in live testing.
 - **[CHANGELOG.md](CHANGELOG.md)** — version history (Keep a Changelog, SemVer).
 - The `/youtube` Claude Code skill in `~/.claude/skills/youtube/` drives this CLI for analysis work —
   keep it in sync when command syntax or metric semantics change.
+
+## README languages
+
+`README.md` = English, full, source of truth. `README.cs.md` = full Czech. `i18n/README.<lang>.md` = short versions (es, pt-BR, de, fr, zh-CN, ja, sv, nb, da). A README change updates both full versions in the same commit; `i18n/` only when the quick start, main features or name change. Author links: faborsky.com in EN/i18n, faborsky.cz + aifirst.cz in Czech.
