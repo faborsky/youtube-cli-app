@@ -4,6 +4,20 @@ All notable changes to this project. The format follows [Keep a Changelog](https
 versioning follows [SemVer](https://semver.org/). The version lives in `__version__` in `youtube_cli.py`
 and is printed by `youtube_cli.py --version`.
 
+## [2.1.0] — 2026-11-08 — More channels, AI disclosure, comment scope
+
+### Added
+- **Global `--profile NAME`** (or env `YOUTUBE_PROFILE`) — each profile keeps its own token in
+  `~/.youtube-cli-token-NAME.json`, so one install can drive a personal and a brand channel.
+  Works with every command, including `auth`.
+- **`upload --synthetic`** — sets `status.containsSyntheticMedia` (YouTube's "altered or synthetic
+  content" disclosure). Without the flag the upload now explicitly declares the video as not synthetic.
+- **Scope `youtube.force-ssl`** requested by `auth`, needed to reply to and moderate comments.
+
+### Changed
+- Credentials load with the scopes stored in the token file instead of the current scope list, so
+  tokens created before 2.1.0 keep refreshing. Run `auth` again only if you need comments.
+
 ## [2.0.0] — 2026-08-18 — YouTube's new view counting + honest `--json` 📊
 
 YouTube [unified how views are counted](https://support.google.com/youtube/thread/433409976) across

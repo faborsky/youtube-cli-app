@@ -6,7 +6,7 @@ A Python command-line tool for managing videos on [YouTube](https://www.youtube.
 
 Author: [Jindřich Fáborský](https://www.faborsky.com)
 
-**v2.0.0** · [Changelog](CHANGELOG.md) · [API notes](docs/api-notes.md)
+**v2.1.0** · [Changelog](CHANGELOG.md) · [API notes](docs/api-notes.md)
 
 > [!TIP]
 > **The app is free and it's yours.** Clone it, use it, rebuild it your way.
@@ -108,6 +108,8 @@ python youtube_cli.py auth
 ```
 
 This saves a long-lived refresh token to `~/.youtube-cli-token.json`. All other commands pick it up automatically, no browser needed.
+
+**More channels:** add `--profile NAME` (or set `YOUTUBE_PROFILE`) to any command, including `auth`. Each profile keeps its own token in `~/.youtube-cli-token-NAME.json`, so you can sign in to a brand channel next to your personal one: `python youtube_cli.py --profile brand auth`, then `python youtube_cli.py --profile brand videos`.
 
 ## Usage
 
@@ -273,7 +275,7 @@ python youtube_cli.py analytics --days 28 --json    # the API's resultTable, ver
 | `auth` | One-time OAuth setup (opens a browser) | none |
 | `videos` | List recent videos | `--limit`, `--json` |
 | `video-get` | Video details | `--video-id` (required), `--json` |
-| `upload` | Upload a video with metadata | `--file`, `--title` (required), `--description`, `--tags`, `--category`, `--privacy`, `--thumbnail`, `--playlist`, `--language`, `--publish-at`, `--json` |
+| `upload` | Upload a video with metadata | `--file`, `--title` (required), `--description`, `--tags`, `--category`, `--privacy`, `--thumbnail`, `--playlist`, `--language`, `--publish-at`, `--synthetic`, `--json` |
 | `video-update` | Update an existing video | `--video-id` (required), `--title`, `--description`, `--tags`, `--category`, `--privacy`, `--thumbnail`, `--json` |
 | `video-delete` | Delete a video | `--video-id` (required), `--confirm` (required) |
 | `stats` | View statistics | `--video-id` (optional), `--engaged`, `--json` |
@@ -296,6 +298,7 @@ python youtube_cli.py analytics --days 28 --json    # the API's resultTable, ver
 | `--playlist` | no | none | ID of the playlist to add the video to |
 | `--language` | no | none | Language code (e.g. `en`, `cs`, `de`) |
 | `--publish-at` | no | none | Scheduled publishing (ISO 8601, forces privacy to `private`) |
+| `--synthetic` | no | off | Discloses realistic altered or synthetic (AI) content (`containsSyntheticMedia`). Without it the video is declared as not synthetic |
 
 ## Safety
 
@@ -323,6 +326,9 @@ Custom thumbnails require a [verified YouTube account](https://support.google.co
 
 **`analytics` reports a scope or permission error:**
 Enable the **YouTube Analytics API** in your Google Cloud project, then run `python youtube_cli.py auth` once. An existing token won't pick up the new scope on its own. Analytics only works for channels you own.
+
+**Comment replies or moderation fail with "insufficient authentication scopes":**
+Since 2.1.0 `auth` also asks for `youtube.force-ssl`. Tokens created earlier keep working for everything else, but need `auth` once more for comments.
 
 **Views suddenly jumped:**
 It may not be growth. Since August 24, 2026, a view counts from the start of playback, with no minimum watch time. To compare like with like, look at `engagedViews` (the `analytics` command or `stats --engaged`).

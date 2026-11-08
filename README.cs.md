@@ -6,7 +6,7 @@ Python nástroj do příkazové řádky na správu videí na [YouTube](https://w
 
 Autor: [Jindřich Fáborský](https://www.faborsky.cz) · kurz [AI First](https://aifirst.cz)
 
-**v2.0.0** · [Changelog](CHANGELOG.md) · [Poznámky k API](docs/api-notes.md)
+**v2.1.0** · [Changelog](CHANGELOG.md) · [Poznámky k API](docs/api-notes.md)
 
 > [!TIP]
 > **Appka je zdarma a je tvoje.** Naklonuj si ji, používej ji, přestav si ji po svém.
@@ -108,6 +108,8 @@ python youtube_cli.py auth
 ```
 
 Uloží se dlouhodobě platný refresh token do `~/.youtube-cli-token.json`. Další příkazy si ho vezmou samy, prohlížeč už není potřeba.
+
+**Víc kanálů:** ke kterémukoli příkazu (i k `auth`) přidej `--profile NÁZEV` (nebo nastav `YOUTUBE_PROFILE`). Každý profil má vlastní token v `~/.youtube-cli-token-NÁZEV.json`, takže se vedle osobního kanálu můžeš přihlásit i ke kanálu značky: `python youtube_cli.py --profile znacka auth`, pak `python youtube_cli.py --profile znacka videos`.
 
 ## Používání
 
@@ -273,7 +275,7 @@ python youtube_cli.py analytics --days 28 --json    # doslovná resultTable z AP
 | `auth` | Jednorázové nastavení OAuth (otevře prohlížeč) | žádné |
 | `videos` | Výpis posledních videí | `--limit`, `--json` |
 | `video-get` | Detail videa | `--video-id` (povinný), `--json` |
-| `upload` | Nahrání videa s metadaty | `--file`, `--title` (povinné), `--description`, `--tags`, `--category`, `--privacy`, `--thumbnail`, `--playlist`, `--language`, `--publish-at`, `--json` |
+| `upload` | Nahrání videa s metadaty | `--file`, `--title` (povinné), `--description`, `--tags`, `--category`, `--privacy`, `--thumbnail`, `--playlist`, `--language`, `--publish-at`, `--synthetic`, `--json` |
 | `video-update` | Úprava existujícího videa | `--video-id` (povinný), `--title`, `--description`, `--tags`, `--category`, `--privacy`, `--thumbnail`, `--json` |
 | `video-delete` | Smazání videa | `--video-id` (povinný), `--confirm` (povinný) |
 | `stats` | Statistiky zhlédnutí | `--video-id` (volitelný), `--engaged`, `--json` |
@@ -296,6 +298,7 @@ Nainstalovanou verzi vypíše `python youtube_cli.py --version`.
 | `--playlist` | ne | žádné | ID playlistu, do kterého se video přidá |
 | `--language` | ne | žádný | Kód jazyka (třeba `en`, `cs`, `de`) |
 | `--publish-at` | ne | žádné | Naplánované zveřejnění (ISO 8601, vynutí privacy `private`) |
+| `--synthetic` | ne | vypnuto | Označí realisticky upravený nebo syntetický (AI) obsah (`containsSyntheticMedia`). Bez něj se video deklaruje jako nesyntetické |
 
 ## Bezpečnost
 
@@ -323,6 +326,9 @@ Vlastní thumbnaily vyžadují [ověřený účet na YouTube](https://support.go
 
 **`analytics` hlásí chybu se scopem nebo s oprávněním:**
 Povol v projektu Google Cloud **YouTube Analytics API** a pak jednou spusť `python youtube_cli.py auth`. Existující token nový scope sám od sebe nezíská. Analytika funguje jenom pro kanály, které vlastníš.
+
+**Odpovědi na komentáře nebo moderace padají na „insufficient authentication scopes“:**
+Od verze 2.1.0 si `auth` říká i o `youtube.force-ssl`. Starší tokeny dál fungují na všechno ostatní, ale kvůli komentářům je potřeba jednou znovu spustit `auth`.
 
 **Zhlédnutí najednou vyskočila:**
 Nemusí to být růst. Od 24. 8. 2026 se zhlédnutí počítá od spuštění přehrávání, bez minimální doby sledování. Abys porovnával stejné se stejným, koukej na `engagedViews` (příkaz `analytics` nebo `stats --engaged`).

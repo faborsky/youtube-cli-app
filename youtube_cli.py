@@ -37,10 +37,11 @@ CLIENT_SECRET = os.getenv("YOUTUBE_CLIENT_SECRET", "")
 TOKEN_FILE = os.path.expanduser("~/.youtube-cli-token.json")
 SCOPES = [
     "https://www.googleapis.com/auth/youtube",
+    "https://www.googleapis.com/auth/youtube.force-ssl",  # comments: reply + moderation
     "https://www.googleapis.com/auth/yt-analytics.readonly",
 ]
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 MAX_RETRIES = 10
 RETRIABLE_STATUS_CODES = (500, 502, 503, 504)
@@ -107,7 +108,8 @@ def _load_credentials() -> Credentials | None:
     if not os.path.exists(TOKEN_FILE):
         return None
     try:
-        creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+        # Use the scopes stored with the token, so older tokens keep refreshing.
+        creds = Credentials.from_authorized_user_file(TOKEN_FILE)
         return creds
     except Exception:
         return None
@@ -582,6 +584,8 @@ def cmd_upload(args: argparse.Namespace) -> None:
         "status": {
             "privacyStatus": args.privacy,
             "selfDeclaredMadeForKids": False,
+            # AI disclosure (Studio „AI use“): False unless the video has realistic altered/synthetic content
+            "containsSyntheticMedia": bool(args.synthetic),
         },
     }
 
@@ -890,6 +894,11 @@ def main() -> None:
         description="YouTube CLI — manage videos, playlists, uploads, and stats.",
     )
     parser.add_argument("--version", action="version", version=f"youtube-cli {__version__}")
+    parser.add_argument(
+        "--profile",
+        default=os.getenv("YOUTUBE_PROFILE", ""),
+        help="Token profile, e.g. 'aifirst' -> ~/.youtube-cli-token-aifirst.json (default: personal channel)",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     json_kwargs: dict = {"action": "store_true", "help": "Output as JSON"}
@@ -915,6 +924,7 @@ def main() -> None:
     p_upload.add_argument("--tags", type=str, default="", help="Comma-separated tags")
     p_upload.add_argument("--category", type=int, default=22, help="Category ID (default: 22 = People & Blogs)")
     p_upload.add_argument("--privacy", type=str, default="private", choices=["private", "unlisted", "public"], help="Privacy status (default: private)")
+    p_upload.add_argument("--synthetic", action="store_true", help="Disclose realistic altered/synthetic (AI) content; default: not synthetic (AI use = No)")
     p_upload.add_argument("--thumbnail", type=str, help="Path to thumbnail image")
     p_upload.add_argument("--playlist", type=str, help="Playlist ID to add video to")
     p_upload.add_argument("--language", type=str, help="Language code (e.g. en, cs, de)")
@@ -968,6 +978,9 @@ def main() -> None:
     p_pl.add_argument("--json", **json_kwargs)
 
     args = parser.parse_args(_splice_negative_values(sys.argv[1:]))
+    if args.profile:
+        global TOKEN_FILE
+        TOKEN_FILE = os.path.expanduser(f"~/.youtube-cli-token-{args.profile}.json")
 
     # Auth command doesn't need existing credentials
     if args.command == "auth":
